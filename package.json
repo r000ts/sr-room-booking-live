@@ -1,0 +1,7 @@
+{
+  "name": "sr-room-booking-live",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Area 3 meeting room booking + dashboard with database-enforced blocking",
+  "dependencies": { "pg": "^8.11.5" }
+}

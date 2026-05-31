@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meeting Room Booking — Area 3 HQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f6;--paper:#ffffff;--ink:#152233;--muted:#5a6675;--line:#dfe4ec;--line2:#eef1f5;
+  --accent:#0b478d;--accent-deep:#073566;--accent-soft:#e4edf7;
+  --orange:#f78f1e;--orange-soft:#fde6cf;
+  --ok:#157a4b;--ok-soft:#dcefe4;--err:#a3231f;--err-soft:#f7e2e1;--warn:#9a5b00;--warn-soft:#fbeedb;
+  --r1:#0b478d;--r2:#0e8a7d;--r3:#f78f1e;--r4:#7a4fd0;
+  --radius:14px;--shadow:0 1px 2px rgba(7,40,80,.05),0 14px 36px -20px rgba(7,40,80,.4);
+}
+*{box-sizing:border-box}html,body{margin:0}
+body{font-family:"Hanken Grotesk",system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;line-height:1.45}
+.shell{max-width:1240px;margin:0 auto;padding:22px 22px 70px}
+.topbar{display:flex;align-items:center;gap:14px}
+.logo{width:46px;height:46px;border-radius:11px;box-shadow:var(--shadow);flex:0 0 auto}
+.topbar h1{font-family:"Bricolage Grotesque";font-weight:700;font-size:20px;margin:0;letter-spacing:-.01em}
+.topbar .sub{font-size:13px;color:var(--muted);margin-top:1px}
+.simbadge{margin-left:auto;background:var(--orange-soft);color:#9a5b00;border:1px solid #f0d9b3;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:6px 11px;border-radius:999px}
+
+/* tabs */
+.tabs{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:4px;margin:18px 0 20px;box-shadow:var(--shadow)}
+.tabs button{appearance:none;border:0;background:none;font:inherit;font-weight:700;font-size:14px;padding:9px 18px;border-radius:9px;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+.tabs button.on{background:var(--accent);color:#fff}
+.tabs .lock{font-size:12px;opacity:.8}
+.tab{display:none}.tab.on{display:block}
+
+/* generic card */
+.card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.card .hd{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line2)}
+.card .hd h2{font-family:"Bricolage Grotesque";font-weight:700;font-size:15px;margin:0}
+
+/* ---------- BOOK TAB ---------- */
+.bookwrap{max-width:660px;margin:0 auto}
+.fcard{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px}
+.fcard+.fcard{margin-top:16px}
+.fcard h2{font-family:"Bricolage Grotesque";font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--accent-deep);margin:0 0 16px;display:flex;align-items:center;gap:9px}
+.fcard h2::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--orange)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px 15px}.full{grid-column:1/-1}
+label{display:block;font-size:13px;font-weight:600;margin:0 0 6px}.req{color:var(--orange)}
+input,select,textarea{width:100%;font:inherit;font-size:15px;color:var(--ink);background:#fbfcfe;border:1px solid var(--line);border-radius:10px;padding:11px 12px;outline:none}
+textarea{resize:vertical;min-height:74px}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px var(--accent-soft)}
+option:disabled{color:#b9c0ca}
+.fielderr{font-size:12.5px;color:var(--err);margin-top:5px;display:none}.fielderr.show{display:block}
+.btn{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;border-radius:11px;padding:13px 18px;font-size:15px;width:100%;background:linear-gradient(150deg,var(--accent),var(--accent-deep));color:#fff;box-shadow:0 10px 24px -12px rgba(7,53,102,.85)}
+.btn:hover{filter:brightness(1.06)}
+.msg{font-size:13.5px;border-radius:10px;padding:11px 13px;margin-top:6px;display:none}.msg.show{display:block}
+.msg.warn{background:var(--warn-soft);color:var(--warn);border:1px solid #f0d9b3}
+.slot{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line2);font-size:14px}.slot:last-child{border-bottom:0}
+.slot .s-time{font-weight:700;font-variant-numeric:tabular-nums}.slot .s-by{color:var(--muted);font-size:13px}
+.pillsm{display:inline-block;font-size:11px;font-weight:700;color:var(--accent-deep);background:var(--accent-soft);border:1px solid #c2d6ef;border-radius:999px;padding:2px 9px;margin-left:8px}
+.done{text-align:center;padding:8px 4px}
+.tick{width:58px;height:58px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center;margin:2px auto 14px;font-size:28px;border:1px solid #bfe2cd}
+.summary{text-align:left;background:#fbfcfe;border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin:14px 0;font-size:14px}
+.summary div{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-bottom:1px dashed var(--line)}.summary div:last-child{border-bottom:0}
+.summary span:first-child{color:var(--muted)}.summary span:last-child{font-weight:700;text-align:right}
+.ref{font-family:"Bricolage Grotesque";font-weight:700;color:var(--accent-deep)}
+
+/* ---------- DASHBOARD ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 16px}
+.seg{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{appearance:none;border:0;background:none;font:inherit;font-weight:600;font-size:13.5px;padding:9px 14px;cursor:pointer;color:var(--muted)}
+.seg button.on{background:var(--accent);color:#fff}
+.navdate{display:inline-flex;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px}
+.navdate button{appearance:none;border:0;background:none;font:inherit;cursor:pointer;padding:9px 12px;color:var(--accent-deep);font-weight:700;font-size:15px}
+.navdate .lbl{font-weight:700;font-size:13.5px;padding:0 6px;min-width:150px;text-align:center}
+.act{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;font:inherit;font-size:12px;font-weight:600;padding:8px 11px;cursor:pointer;color:var(--accent-deep)}
+.act:hover{border-color:var(--accent);background:var(--accent-soft)}.act.danger{color:var(--err)}.act.danger:hover{border-color:var(--err);background:var(--err-soft)}
+.spacer{flex:1}#search{min-width:200px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}
+.kpi{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi .k-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.kpi .k-val{font-family:"Bricolage Grotesque";font-weight:700;font-size:30px;line-height:1.1;margin-top:7px}
+.kpi .k-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}
+.kpi.util::after{background:var(--orange)}.kpi.next::after{background:var(--ok)}
+.bar{height:7px;border-radius:99px;background:var(--line2);margin-top:9px;overflow:hidden}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--orange),#ffb259)}
+.legend{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}.lg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.lg i{width:11px;height:11px;border-radius:3px}
+.calwrap{padding:8px 12px 16px;overflow-x:auto}.cal{display:grid;min-width:760px}
+.dayhead{padding:9px 8px;text-align:center;border-bottom:1px solid var(--line);font-weight:700;font-size:12.5px}
+.dayhead small{display:block;font-weight:600;color:var(--muted);font-size:11px}.dayhead.today{color:var(--accent)}.dayhead.today small{color:var(--accent)}
+.timegutter .t{height:56px;font-size:11px;color:var(--muted);text-align:right;padding-right:8px;transform:translateY(-7px)}
+.daycol{position:relative;border-left:1px solid var(--line2)}.daycol .hourline{height:56px;border-bottom:1px dashed var(--line2)}.daycol.today{background:#f5f9ff}
+.ev{position:absolute;border-radius:8px;padding:5px 7px;color:#fff;overflow:hidden;cursor:pointer;box-shadow:0 4px 10px -4px rgba(0,0,0,.4);border-left:3px solid rgba(255,255,255,.5)}
+.ev:hover{filter:brightness(1.07)}.ev .ev-t{font-size:11px;font-weight:700;opacity:.92}.ev .ev-n{font-size:12.5px;font-weight:700;line-height:1.2;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.ev .ev-r{font-size:10.5px;opacity:.85}
+.nowline{position:absolute;left:0;right:0;height:2px;background:var(--err);z-index:5}.nowline::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--err)}
+.tablewrap{padding:4px 0 6px;overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:820px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;padding:10px 14px;border-bottom:1px solid var(--line)}
+td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background:#fafbfd}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px}
+.pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}.pill.confirmed{background:var(--ok-soft);color:var(--ok)}.pill.cancelled{background:var(--err-soft);color:var(--err)}
+.muted{color:var(--muted)}.empty{padding:26px;text-align:center;color:var(--muted)}
+
+/* gate */
+.gate{max-width:420px;margin:30px auto;text-align:center}
+.gate .lockicon{width:60px;height:60px;border-radius:50%;background:var(--accent-soft);color:var(--accent-deep);display:grid;place-items:center;font-size:26px;margin:0 auto 14px;border:1px solid #c2d6ef}
+.gate h2{font-family:"Bricolage Grotesque";margin:0 0 6px}
+.gate p{color:var(--muted);font-size:14px;margin:0 0 16px}
+.gate input{text-align:center;letter-spacing:.1em}
+.gate .hint{font-size:12px;color:var(--muted);margin-top:12px}
+.gate .err{color:var(--err);font-size:13px;margin-top:8px;display:none}.gate .err.show{display:block}
+
+/* drawer */
+.drawer-bg{position:fixed;inset:0;background:rgba(10,26,46,.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}.drawer-bg.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:92vw;background:#fff;box-shadow:-20px 0 50px -20px rgba(7,40,80,.5);transform:translateX(100%);transition:transform .22s;z-index:41;padding:22px;overflow:auto}.drawer.open{transform:none}
+.drawer h3{font-family:"Bricolage Grotesque";font-size:18px;margin:0 0 4px}.drawer .close{position:absolute;top:16px;right:16px;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted)}
+.drow{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:14px}.drow span:first-child{color:var(--muted)}.drow span:last-child{font-weight:700;text-align:right}
+.dactions{display:flex;gap:10px;margin-top:18px}.btn2{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;border-radius:10px;padding:11px 16px;font-size:14px;flex:1}.btn2.primary{background:linear-gradient(150deg,var(--accent),var(--accent-deep));color:#fff}.btn2.ghost{background:#fff;border:1px solid var(--line);color:var(--err)}
+.foot{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
+@media(max-width:1040px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.shell{padding:16px}.grid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <img class="logo" src="__LOGO_B64__" alt="FCC–Almabani" />
+    <div><h1>Meeting Room Booking</h1><div class="sub">Area 3 HQ · FCC–Almabani Joint Venture</div></div>
+    
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="book" class="on">Book a room</button>
+    <button data-tab="dash">Dashboard <span class="lock">🔒</span></button>
+  </div>
+
+  <!-- ===================== BOOK TAB ===================== -->
+  <div class="tab on" id="tab-book">
+    <div class="bookwrap">
+      <div class="fcard" id="formCard">
+        <h2>New booking</h2>
+        <div class="grid">
+          <div class="full"><label>Room <span class="req">*</span></label><select id="bRoom"></select></div>
+          <div><label>Your name <span class="req">*</span></label><input id="bName" type="text"><div class="fielderr" id="eName">Please enter your name.</div></div>
+          <div><label>Your email <span class="req">*</span></label><input id="bEmail" type="email" placeholder="name@company.com"><div class="fielderr" id="eEmail">Enter a valid email.</div></div>
+          <div class="full"><label>Date <span class="req">*</span></label><input id="bDate" type="date"></div>
+          <div><label>Start <span class="req">*</span></label><select id="bStart"></select></div>
+          <div><label>End <span class="req">*</span></label><select id="bEnd"></select><div class="fielderr" id="eEnd">End must be after start and not overlap.</div></div>
+          <div class="full"><label>Number of attendees</label><input id="bAtt" type="number" min="1" max="200" placeholder="e.g. 8"></div>
+          <div class="full"><label>Purpose / notes</label><textarea id="bPurpose" placeholder="Meeting subject, host, requirements…"></textarea></div>
+          <div class="full msg warn" id="bMsg"></div>
+          <div class="full"><button class="btn" id="bSubmit">Confirm booking</button></div>
+        </div>
+      </div>
+
+      <div class="fcard done" id="doneCard" style="display:none">
+        <div class="tick">✓</div>
+        <h2 style="text-transform:none;letter-spacing:0;color:var(--ink);justify-content:center">Booking confirmed</h2>
+        <p class="muted" id="doneMsg" style="margin:4px 0 0"></p>
+        <div class="summary" id="doneSummary"></div>
+        <button class="btn" id="againBtn">Make another booking</button>
+      </div>
+
+      <div class="fcard">
+        <h2 id="availTitle">Availability</h2>
+        <div id="availList"><div class="muted">Choose a room and date.</div></div>
+        <p class="muted" style="font-size:12.5px;margin-top:12px">Taken times are greyed out in the dropdowns; the system rejects any clash at the moment of booking.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== DASHBOARD TAB ===================== -->
+  <div class="tab" id="tab-dash">
+    <!-- gate -->
+    <div class="gate" id="dashGate">
+      <div class="lockicon">🔒</div>
+      <h2>Dashboard access</h2>
+      <p>Enter the admin passcode to view the operations dashboard.</p>
+      <input id="gateInput" type="password" placeholder="Passcode" maxlength="40">
+      <div class="err" id="gateErr">Incorrect passcode.</div>
+      <div style="margin-top:14px"><button class="btn" id="gateBtn" style="width:auto;padding:12px 26px">Unlock</button></div>
+      <div class="hint">Access is limited to facilities / admins.</div>
+    </div>
+
+    <!-- dashboard content -->
+    <div id="dashContent" style="display:none">
+      <div class="controls">
+        <div class="seg" id="viewSeg"><button data-view="week" class="on">Week</button><button data-view="day">Day</button></div>
+        <div class="navdate"><button id="prev">‹</button><span class="lbl" id="rangeLbl">—</span><button id="next">›</button></div>
+        <button class="act" id="todayBtn">Today</button>
+        <select id="roomSel"></select>
+        <div class="spacer"></div>
+        <input type="search" id="search" placeholder="Search bookings, people, refs…">
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="card" style="margin-bottom:18px">
+        <div class="hd"><h2 id="calTitle">This week</h2><div class="legend" id="legend"></div></div>
+        <div class="calwrap"><div class="cal" id="cal"></div></div>
+      </div>
+      <div class="card">
+        <div class="hd"><h2>All bookings</h2><span class="muted" id="tableCount" style="margin-left:auto;font-size:12.5px"></span></div>
+        <div class="tablewrap"><table><thead><tr>
+          <th>Ref</th><th>Room</th><th>Date</th><th>Time</th><th>Booked by</th><th>Attendees</th><th>Purpose</th><th>Status</th><th></th>
+        </tr></thead><tbody id="tbody"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">FCC–Almabani Joint Venture · Area 3 HQ internal booking system</div>
+</div>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<div class="drawer" id="drawer"><button class="close" id="drawerClose">×</button><div id="drawerBody"></div></div>
+
+<script>
+const OPEN=7,CLOSE=20,HOUR_H=56;
+const ROOMS=[
+  {id:"area3",name:"Area 3 Board Room",hex:"#0b478d"}
+];
+const API="/.netlify/functions/bookings";
+const roomById=id=>ROOMS.find(r=>r.id===id);
+const $=id=>document.getElementById(id);
+const pad=n=>String(n).padStart(2,"0");
+const min=t=>(+t.slice(0,2))*60+(+t.slice(3,5));
+const esc=s=>String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const NOW=new Date();
+function startOfWeek(d){const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-x.getDay());return x;}
+function iso(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+const WK=startOfWeek(NOW);
+
+let BOOKINGS=[];          // dashboard dataset (loaded from server when unlocked)
+let DASH_PASS="";         // admin passcode held in memory after unlock
+
+/* ============ TABS ============ */
+$("tabs").querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
+  const t=btn.dataset.tab;
+  $("tabs").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===btn));
+  $("tab-book").classList.toggle("on",t==="book");
+  $("tab-dash").classList.toggle("on",t==="dash");
+});
+
+/* ============ BOOK TAB ============ */
+const bRoom=$("bRoom"),bStart=$("bStart"),bEnd=$("bEnd");
+bRoom.innerHTML=ROOMS.map(r=>`<option value="${r.id}">${r.name}</option>`).join("");
+const todayStr=iso(NOW);$("bDate").min=todayStr;$("bDate").value=todayStr;
+let booked=[];
+const slots=inc=>{const a=[];for(let m=OPEN*60;m<=CLOSE*60;m+=30){if(!inc&&m===CLOSE*60)continue;if(inc&&m===OPEN*60)continue;a.push(pad(Math.floor(m/60))+":"+pad(m%60));}return a;};
+const sBlocked=t=>booked.some(b=>t>=b.start&&t<b.end);
+const overlaps=(s,e)=>booked.some(b=>s<b.end&&e>b.start);
+async function loadBooked(){
+  try{
+    const r=await fetch(`${API}?room=${encodeURIComponent(bRoom.value)}&date=${$("bDate").value}`,{cache:"no-store"});
+    if(!r.ok) throw 0;
+    const d=await r.json(); booked=Array.isArray(d.bookings)?d.bookings:[];
+  }catch(e){ booked=[]; bMsg("Couldn't load availability — please refresh."); }
+}
+function refreshStart(){const prev=bStart.value;bStart.innerHTML=slots(false).map(t=>{const d=sBlocked(t);return `<option value="${t}"${d?" disabled":""}>${t}${d?" — booked":""}</option>`;}).join("");if(prev&&!sBlocked(prev))bStart.value=prev;else{const f=slots(false).find(t=>!sBlocked(t));if(f)bStart.value=f;}refreshEnd();}
+function refreshEnd(){const s=bStart.value,prev=bEnd.value;bEnd.innerHTML=slots(true).filter(t=>t>s).map(t=>{const d=overlaps(s,t);return `<option value="${t}"${d?" disabled":""}>${t}${d?" — overlaps":""}</option>`;}).join("");if(prev&&prev>s&&!overlaps(s,prev))bEnd.value=prev;else{const o=[...bEnd.options].find(o=>!o.disabled);if(o)bEnd.value=o.value;}}
+function renderAvail(){
+  $("availTitle").textContent=`Booked · ${roomById(bRoom.value).name} · ${new Date($("bDate").value+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}`;
+  const box=$("availList");
+  if(!booked.length){box.innerHTML='<div class="muted">No bookings yet — all slots open.</div>';return;}
+  box.innerHTML=booked.slice().sort((a,b)=>a.start.localeCompare(b.start)).map(b=>`<div class="slot"><div><span class="s-time">${b.start} – ${b.end}</span><span class="pillsm">Booked</span></div><div class="s-by">${esc(b.name)}</div></div>`).join("");
+}
+async function bookRefresh(){await loadBooked();refreshStart();renderAvail();}
+bRoom.onchange=bookRefresh;$("bDate").onchange=bookRefresh;bStart.onchange=refreshEnd;
+function setErr(id,on){$(id).classList.toggle("show",on);}
+function bMsg(t){const m=$("bMsg");m.textContent=t;m.classList.add("show");}
+$("bSubmit").onclick=async ()=>{
+  $("bMsg").classList.remove("show");
+  const name=$("bName").value.trim(),email=$("bEmail").value.trim(),date=$("bDate").value,s=bStart.value,e=bEnd.value;
+  let ok=true;
+  setErr("eName",!name);if(!name)ok=false;
+  setErr("eEmail",!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))ok=false;
+  setErr("eEnd",!(s<e)||overlaps(s,e));if(!(s<e)||overlaps(s,e))ok=false;
+  if(!ok)return;
+  const btn=$("bSubmit");btn.disabled=true;btn.textContent="Booking…";
+  try{
+    const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({room:bRoom.value,name,email,date,start:s,end:e,attendees:$("bAtt").value.trim()||"",purpose:$("bPurpose").value.trim()||""})});
+    if(r.status===409){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Sorry — that slot was just taken. Availability refreshed; pick another time.");await bookRefresh();return;}
+    if(!r.ok) throw 0;
+    const d=await r.json();
+    btn.disabled=false;btn.textContent="Confirm booking";
+    $("formCard").style.display="none";$("doneCard").style.display="block";
+    $("doneMsg").textContent=`A confirmation has been emailed to ${email}.`;
+    $("doneSummary").innerHTML=`
+      <div><span>Reference</span><span class="ref">${d.ref}</span></div>
+      <div><span>Room</span><span>${esc(roomById(bRoom.value).name)}</span></div>
+      <div><span>Date</span><span>${new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}</span></div>
+      <div><span>Time</span><span>${s} – ${e}</span></div>
+      <div><span>Booked by</span><span>${esc(name)}</span></div>`;
+    if(dashUnlocked) await loadDashData();
+  }catch(e){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Couldn't reach the booking service. Please try again.");}
+};
+$("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bAtt").value="";$("bPurpose").value="";bookRefresh();};
+bookRefresh();
+
+/* ============ DASHBOARD ============ */
+let view="week",weekOffset=0,roomFilter="area3",search="",dashUnlocked=false;
+(function(){$("roomSel").innerHTML='<option value="all">All rooms</option>'+ROOMS.map(r=>`<option value="${r.id}">${r.name}</option>`).join("");$("roomSel").value="area3";
+  $("legend").innerHTML=ROOMS.map(r=>`<span class="lg"><i style="background:${r.hex}"></i>${r.name}</span>`).join("");})();
+
+async function loadDashData(){
+  try{
+    const r=await fetch(`${API}?admin=1`,{headers:{"x-dash-pass":DASH_PASS},cache:"no-store"});
+    if(r.status===401){return 401;}
+    if(!r.ok) throw 0;
+    const d=await r.json(); BOOKINGS=Array.isArray(d.bookings)?d.bookings:[];
+    renderAll(); return 200;
+  }catch(e){ return 0; }
+}
+async function gateTry(){
+  $("gateErr").classList.remove("show");
+  DASH_PASS=$("gateInput").value.trim();
+  const res=await loadDashData();
+  if(res===200){dashUnlocked=true;$("dashGate").style.display="none";$("dashContent").style.display="block";}
+  else if(res===401){DASH_PASS="";$("gateErr").textContent="Incorrect passcode.";$("gateErr").classList.add("show");}
+  else {DASH_PASS="";$("gateErr").textContent="Couldn't reach the server. Try again.";$("gateErr").classList.add("show");}
+}
+$("gateBtn").onclick=gateTry;$("gateInput").onkeydown=e=>{if(e.key==="Enter")gateTry();};
+
+function weekStart(){const d=new Date(WK);d.setDate(WK.getDate()+weekOffset*7);return d;}
+function dayList(){const s=weekStart();return [...Array(7)].map((_,i)=>{const d=new Date(s);d.setDate(s.getDate()+i);return d;});}
+function vis(){return BOOKINGS.filter(b=>{if(roomFilter!=="all"&&b.room!==roomFilter)return false;if(search){const h=(b.ref+" "+b.name+" "+b.purpose+" "+roomById(b.room).name).toLowerCase();if(!h.includes(search.toLowerCase()))return false;}return true;});}
+const monthLbl=d=>d.toLocaleDateString(undefined,{day:"numeric",month:"short"});
+const fmtDay=d=>d.toLocaleDateString(undefined,{weekday:"short"});
+
+function renderKPIs(){
+  const days=dayList().map(iso);
+  const wk=vis().filter(b=>b.status==="confirmed"&&days.includes(b.date));
+  const todayB=vis().filter(b=>b.status==="confirmed"&&b.date===iso(NOW));
+  const rs=roomFilter==="all"?ROOMS.length:1;
+  const avail=rs*7*(CLOSE-OPEN)*60;
+  const bk=wk.reduce((s,b)=>s+(min(b.end)-min(b.start)),0);
+  const util=Math.min(100,Math.round(bk/avail*100));
+  const byDay={};wk.forEach(b=>byDay[b.date]=(byDay[b.date]||0)+1);
+  let busy="—",bn=0;Object.entries(byDay).forEach(([d,n])=>{if(n>bn){bn=n;busy=d;}});
+  const busyLbl=busy==="—"?"—":new Date(busy+"T00:00").toLocaleDateString(undefined,{weekday:"long"});
+  const up=vis().filter(b=>b.status==="confirmed"&&new Date(b.date+"T"+b.start)>=NOW).sort((a,b)=>new Date(a.date+"T"+a.start)-new Date(b.date+"T"+b.start))[0];
+  const upLbl=up?`${roomById(up.room).name.split(" ")[0]} · ${up.start}`:"None";
+  const upSub=up?new Date(up.date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"}):"—";
+  $("kpis").innerHTML=`
+    <div class="kpi"><div class="k-label">Bookings today</div><div class="k-val">${todayB.length}</div><div class="k-sub">${roomFilter==="all"?"all rooms":roomById(roomFilter).name}</div></div>
+    <div class="kpi"><div class="k-label">This week</div><div class="k-val">${wk.length}</div><div class="k-sub">confirmed</div></div>
+    <div class="kpi util"><div class="k-label">Utilisation</div><div class="k-val">${util}%</div><div class="bar"><i style="width:${util}%"></i></div></div>
+    <div class="kpi"><div class="k-label">Busiest day</div><div class="k-val" style="font-size:22px;padding-top:4px">${busyLbl}</div><div class="k-sub">${bn?bn+" bookings":"—"}</div></div>
+    <div class="kpi next"><div class="k-label">Next up</div><div class="k-val" style="font-size:20px;padding-top:5px">${esc(upLbl)}</div><div class="k-sub">${upSub}</div></div>`;
+}
+function layout(items){const evs=items.slice().sort((a,b)=>min(a.start)-min(b.start));const lanes=[];evs.forEach(e=>{let p=false;for(let i=0;i<lanes.length;i++){if(lanes[i]<=min(e.start)){e._l=i;lanes[i]=min(e.end);p=true;break;}}if(!p){e._l=lanes.length;lanes.push(min(e.end));}});evs.forEach(e=>e._n=lanes.length||1);return evs;}
+function evBlock(b){const top=(min(b.start)-OPEN*60)/60*HOUR_H,h=Math.max(22,(min(b.end)-min(b.start))/60*HOUR_H-3),w=100/b._n,left=b._l*w,c=roomById(b.room).hex,x=b.status==="cancelled";
+  return `<div class="ev" style="top:${top}px;height:${h}px;left:calc(${left}% + 2px);width:calc(${w}% - 5px);background:${x?'#b7c0cc':c};${x?'opacity:.6;text-decoration:line-through;':''}" data-ref="${b.ref}"><div class="ev-t">${b.start}–${b.end}</div><div class="ev-n">${esc(b.name)}</div>${roomFilter==="all"?`<div class="ev-r">${esc(roomById(b.room).name)}</div>`:`<div class="ev-r">${esc(b.purpose)}</div>`}</div>`;}
+function renderCal(){
+  const cal=$("cal"),days=dayList();
+  const cols=view==="week"?days:[days.find(d=>iso(d)===iso(NOW))||days[0]];
+  cal.style.gridTemplateColumns=`64px repeat(${cols.length},1fr)`;
+  $("calTitle").textContent=view==="week"?`Week of ${monthLbl(weekStart())}`:cols[0].toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
+  $("rangeLbl").textContent=view==="week"?`${monthLbl(days[0])} – ${monthLbl(days[6])}`:monthLbl(cols[0]);
+  let html=`<div></div>`;
+  cols.forEach(d=>{const t=iso(d)===iso(NOW);html+=`<div class="dayhead${t?' today':''}">${fmtDay(d)} <small>${monthLbl(d)}</small></div>`;});
+  let g="";for(let h=OPEN;h<=CLOSE;h++)g+=`<div class="t">${pad(h)}:00</div>`;html+=`<div class="timegutter">${g}</div>`;
+  cols.forEach(d=>{const dStr=iso(d),items=vis().filter(b=>b.date===dStr),laid=layout(items),t=dStr===iso(NOW);
+    let hl="";for(let h=OPEN;h<CLOSE;h++)hl+=`<div class="hourline"></div>`;
+    let nl="";if(dStr===iso(NOW)){const nm=NOW.getHours()*60+NOW.getMinutes();if(nm>=OPEN*60&&nm<=CLOSE*60)nl=`<div class="nowline" style="top:${(nm-OPEN*60)/60*HOUR_H}px"></div>`;}
+    html+=`<div class="daycol${t?' today':''}" style="height:${(CLOSE-OPEN)*HOUR_H}px">${hl}${nl}${laid.map(evBlock).join("")}</div>`;});
+  cal.innerHTML=html;
+  cal.querySelectorAll(".ev").forEach(el=>el.onclick=()=>openDrawer(el.dataset.ref));
+}
+function renderTable(){
+  const rows=vis().slice().sort((a,b)=>new Date(b.date+"T"+b.start)-new Date(a.date+"T"+a.start));
+  $("tableCount").textContent=`${rows.filter(r=>r.status==="confirmed").length} confirmed · ${rows.length} total`;
+  const tb=$("tbody");
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="9" class="empty">No bookings match.</td></tr>`;return;}
+  tb.innerHTML=rows.map(b=>{const r=roomById(b.room);const dt=new Date(b.date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
+    return `<tr><td><span class="ref">${b.ref}</span></td><td><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</td><td>${dt}</td><td>${b.start}–${b.end}</td><td>${esc(b.name)}</td><td class="muted">${esc(b.attendees)}</td><td class="muted">${esc(b.purpose)}</td><td><span class="pill ${b.status}">${b.status}</span></td><td style="white-space:nowrap"><button class="act" data-open="${b.ref}">View</button> ${b.status==="confirmed"?`<button class="act danger" data-cancel="${b.ref}">Cancel</button>`:""}</td></tr>`;}).join("");
+  tb.querySelectorAll("[data-open]").forEach(el=>el.onclick=()=>openDrawer(el.dataset.open));
+  tb.querySelectorAll("[data-cancel]").forEach(el=>el.onclick=()=>cancelBooking(el.dataset.cancel));
+}
+function openDrawer(ref){const b=BOOKINGS.find(x=>x.ref===ref);if(!b)return;const r=roomById(b.room);const dt=new Date(b.date+"T00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  $("drawerBody").innerHTML=`<h3>${esc(b.name)}</h3><div class="muted" style="margin-bottom:14px"><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</div>
+    <div class="drow"><span>Reference</span><span class="ref">${b.ref}</span></div><div class="drow"><span>Date</span><span>${dt}</span></div><div class="drow"><span>Time</span><span>${b.start} – ${b.end}</span></div><div class="drow"><span>Attendees</span><span>${esc(b.attendees)}</span></div><div class="drow"><span>Purpose</span><span>${esc(b.purpose)}</span></div><div class="drow"><span>Status</span><span><span class="pill ${b.status}">${b.status}</span></span></div>
+    <div class="dactions">${b.status==="confirmed"?`<button class="btn2 primary" disabled>Edit</button><button class="btn2 ghost" id="dCancel">Cancel booking</button>`:`<button class="btn2 primary" disabled>Cancelled</button>`}</div>`;
+  const dc=$("dCancel");if(dc)dc.onclick=()=>{cancelBooking(ref);closeDrawer();};
+  $("drawer").classList.add("open");$("drawerBg").classList.add("open");}
+function closeDrawer(){$("drawer").classList.remove("open");$("drawerBg").classList.remove("open");}
+$("drawerClose").onclick=closeDrawer;$("drawerBg").onclick=closeDrawer;
+async function cancelBooking(ref){
+  try{
+    const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json","x-dash-pass":DASH_PASS},body:JSON.stringify({action:"cancel",ref})});
+    if(!r.ok) throw 0;
+    await loadDashData(); await bookRefresh();
+  }catch(e){ alert("Couldn't cancel — please try again."); }
+}
+
+$("viewSeg").querySelectorAll("button").forEach(btn=>btn.onclick=()=>{view=btn.dataset.view;$("viewSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===btn));renderCal();});
+$("prev").onclick=()=>{if(view==="week"){weekOffset--;renderAll();}};
+$("next").onclick=()=>{if(view==="week"){weekOffset++;renderAll();}};
+$("todayBtn").onclick=()=>{weekOffset=0;renderAll();};
+$("roomSel").onchange=e=>{roomFilter=e.target.value;renderAll();};
+$("search").oninput=e=>{search=e.target.value;renderAll();};
+function renderAll(){if(!dashUnlocked)return;renderKPIs();renderCal();renderTable();}
+</script>
+</body>
+</html>
