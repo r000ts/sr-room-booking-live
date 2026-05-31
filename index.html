@@ -373,12 +373,20 @@ function renderCal(){
   cal.querySelectorAll(".ev").forEach(el=>el.onclick=()=>openDrawer(el.dataset.ref));
 }
 function renderTable(){
-  const rows=vis().slice().sort((a,b)=>new Date(b.date+"T"+b.start)-new Date(a.date+"T"+a.start));
-  $("tableCount").textContent=`${rows.filter(r=>r.status==="confirmed").length} confirmed · ${rows.length} total`;
   const tb=$("tbody");
+  let rows=vis().slice();
+  try{ rows.sort((a,b)=>String(b.date+"T"+b.start).localeCompare(String(a.date+"T"+a.start))); }catch(e){ console.error("sort failed",e); }
+  $("tableCount").textContent=`${rows.filter(r=>r.status==="confirmed").length} confirmed · ${rows.length} total`;
   if(!rows.length){tb.innerHTML=`<tr><td colspan="9" class="empty">No bookings match.</td></tr>`;return;}
-  tb.innerHTML=rows.map(b=>{const r=roomById(b.room);const dt=new Date(b.date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
-    return `<tr><td><span class="ref">${b.ref}</span></td><td><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</td><td>${dt}</td><td>${b.start}–${b.end}</td><td>${esc(b.name)}</td><td class="muted">${esc(b.attendees)}</td><td class="muted">${esc(b.purpose)}</td><td><span class="pill ${b.status}">${b.status}</span></td><td style="white-space:nowrap"><button class="act" data-open="${b.ref}">View</button> ${b.status==="confirmed"?`<button class="act danger" data-cancel="${b.ref}">Cancel</button>`:""}</td></tr>`;}).join("");
+  const html=rows.map(b=>{
+    try{
+      const r=roomById(b.room)||{hex:"#0b478d",name:b.room||"—"};
+      const dd=new Date(b.date+"T00:00");
+      const dt=isNaN(dd)?(b.date||"—"):dd.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
+      return `<tr><td><span class="ref">${esc(b.ref)}</span></td><td><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</td><td>${dt}</td><td>${esc(b.start)}–${esc(b.end)}</td><td>${esc(b.name)}</td><td class="muted">${esc(b.attendees)}</td><td class="muted">${esc(b.purpose)}</td><td><span class="pill ${esc(b.status)}">${esc(b.status)}</span></td><td style="white-space:nowrap"><button class="act" data-open="${esc(b.ref)}">View</button> ${b.status==="confirmed"?`<button class="act danger" data-cancel="${esc(b.ref)}">Cancel</button>`:""}</td></tr>`;
+    }catch(e){ console.error("row build failed for",b,e); return ""; }
+  }).join("");
+  tb.innerHTML=html;
   tb.querySelectorAll("[data-open]").forEach(el=>el.onclick=()=>openDrawer(el.dataset.open));
   tb.querySelectorAll("[data-cancel]").forEach(el=>el.onclick=()=>cancelBooking(el.dataset.cancel));
 }
