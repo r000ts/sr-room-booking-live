@@ -28,6 +28,8 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM = process.env.RESEND_FROM || "Area 3 Booking <bookings@systemrapid.com>";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";   // optional CC for confirmations
 const ORG_NAME = process.env.ORG_NAME || "FCC\u2013Almabani Joint Venture";
+const SITE_URL = process.env.SITE_URL || "https://booking.systemrapid.com";
+const crypto = require("crypto");
 
 const ROOM_NAMES = { area3: "Area 3 Board Room" };   // for emails; UI has its own labels
 
@@ -53,7 +55,7 @@ function ksaParts(ts) {
 }
 const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-async function sendEmail(b, ref) {
+async function sendEmail(b, ref, token) {
   if (!RESEND_API_KEY) return;
   const pretty = new Date(`${b.date}T00:00:00${TZ}`).toLocaleDateString("en-GB",
     { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Riyadh" });
@@ -69,7 +71,11 @@ async function sendEmail(b, ref) {
         <tr><td style="color:#5a6675;padding:6px 0">Room</td><td style="text-align:right;font-weight:700">${esc(roomName)}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Date</td><td style="text-align:right;font-weight:700">${pretty}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Time</td><td style="text-align:right;font-weight:700">${b.start} – ${b.end} (KSA)</td></tr>
-      </table></div></div>`;
+      </table>
+      <div style="margin-top:16px"><a href="${SITE_URL}/?manage=${encodeURIComponent(ref)}&token=${encodeURIComponent(token||"")}"
+        style="display:inline-block;background:#0b478d;color:#fff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:8px;font-size:14px">Change or cancel this booking</a></div>
+      <p style="color:#5a6675;font-size:12px;margin-top:12px">If you didn't make this booking, you can ignore this email.</p>
+      </div></div>`;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -92,6 +98,22 @@ exports.handler = async (event) => {
   const pass = event.headers["x-dash-pass"] || event.headers["X-Dash-Pass"];
 
   try {
+    // ---------------- SELF-SERVICE: look up own booking (ref + token) ----------------
+    if (event.httpMethod === "GET" && q.manage) {
+      const ref = q.manage, token = q.token || "";
+      if (!ref || !token) return json(400, { error: "missing ref or token" });
+      const { rows } = await pool.query(
+        `select ref, room, booker_name, attendees, purpose, starts_at, ends_at, status
+           from bookings where ref=$1 and manage_token=$2`, [ref, token]);
+      if (!rows.length) return json(404, { error: "not found" });
+      const r = rows[0];
+      const s = ksaParts(r.starts_at), e = ksaParts(r.ends_at);
+      return json(200, { booking: {
+        ref: r.ref, room: r.room, name: r.booker_name,
+        attendees: r.attendees || "—", purpose: r.purpose || "—",
+        date: s.date, start: s.hm, end: e.hm, status: r.status } });
+    }
+
     // ---------------- ADMIN: list all ----------------
     if (event.httpMethod === "GET" && q.admin === "1") {
       if (!DASH_PASSCODE || pass !== DASH_PASSCODE) return json(401, { error: "unauthorised" });
@@ -118,6 +140,15 @@ exports.handler = async (event) => {
       let body;
       try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { error: "invalid JSON" }); }
 
+      if (body.action === "selfcancel") {
+        if (!body.ref || !body.token) return json(400, { error: "missing ref or token" });
+        const { rowCount } = await pool.query(
+          `update bookings set status='cancelled' where ref=$1 and manage_token=$2 and status='confirmed'`,
+          [body.ref, body.token]);
+        if (!rowCount) return json(404, { error: "not found or already cancelled" });
+        return json(200, { ok: true });
+      }
+
       if (body.action === "cancel") {
         if (!DASH_PASSCODE || pass !== DASH_PASSCODE) return json(401, { error: "unauthorised" });
         if (!body.ref) return json(400, { error: "missing ref" });
@@ -139,12 +170,13 @@ exports.handler = async (event) => {
       const endsAt = `${b.date}T${b.end}:00${TZ}`;
       for (let attempt = 0; attempt < 2; attempt++) {
         const ref = "BK-" + Math.random().toString(36).toUpperCase().slice(2, 7);
+        const token = crypto.randomBytes(18).toString("hex");
         try {
           await pool.query(
-            `insert into bookings (ref, room, booker_name, booker_email, attendees, purpose, starts_at, ends_at)
-             values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [ref, b.room, b.name, b.email, b.attendees || null, b.purpose || null, startsAt, endsAt]);
-          await sendEmail(b, ref);
+            `insert into bookings (ref, manage_token, room, booker_name, booker_email, attendees, purpose, starts_at, ends_at)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [ref, token, b.room, b.name, b.email, b.attendees || null, b.purpose || null, startsAt, endsAt]);
+          await sendEmail(b, ref, token);
           return json(200, { ok: true, ref });
         } catch (e) {
           if (e.code === "23P01") return json(409, { error: "conflict" });
