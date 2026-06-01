@@ -297,6 +297,7 @@ $("bSubmit").onclick=async ()=>{
       <div><span>Time</span><span>${s} – ${e}</span></div>
       <div><span>Booked by</span><span>${esc(name)}</span></div>`;
     if(dashUnlocked) await loadDashData();
+    await bookRefresh();
   }catch(e){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Couldn't reach the booking service. Please try again.");}
 };
 $("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bAtt").value="";$("bPurpose").value="";bookRefresh();};
@@ -313,14 +314,14 @@ async function loadDashData(){
     if(r.status===401){return 401;}
     if(!r.ok) throw 0;
     const d=await r.json(); BOOKINGS=Array.isArray(d.bookings)?d.bookings:[];
-    renderAll(); return 200;
+    dashUnlocked=true; renderAll(); return 200;
   }catch(e){ return 0; }
 }
 async function gateTry(){
   $("gateErr").classList.remove("show");
   DASH_PASS=$("gateInput").value.trim();
   const res=await loadDashData();
-  if(res===200){dashUnlocked=true;$("dashGate").style.display="none";$("dashContent").style.display="block";}
+  if(res===200){dashUnlocked=true;$("dashGate").style.display="none";$("dashContent").style.display="block";renderAll();}
   else if(res===401){DASH_PASS="";$("gateErr").textContent="Incorrect passcode.";$("gateErr").classList.add("show");}
   else {DASH_PASS="";$("gateErr").textContent="Couldn't reach the server. Try again.";$("gateErr").classList.add("show");}
 }
