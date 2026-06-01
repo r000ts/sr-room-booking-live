@@ -162,8 +162,8 @@ exports.handler = async (event) => {
       const { rows } = await pool.query(
         `select ref, booker_name, starts_at, ends_at from bookings
           where room=$1 and status='confirmed'
-            and starts_at >= $2::timestamptz and starts_at < ($2::date + interval '1 day')
-          order by starts_at`, [room, `${date}T00:00:00${TZ}`]);
+            and starts_at >= $2::timestamptz and starts_at < $3::timestamptz
+          order by starts_at`, [room, `${date}T00:00:00${TZ}`, `${date}T23:59:59${TZ}`]);
       const bookings = rows.map(r => ({ start: ksaParts(r.starts_at).hm, end: ksaParts(r.ends_at).hm, name: r.booker_name }));
       return json(200, { bookings });
     }
