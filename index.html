@@ -123,6 +123,20 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
 .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
 @media(max-width:1040px){.kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){.shell{padding:16px}.grid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}
+
+/* availability day grid */
+.daygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:7px;margin-top:4px}
+.cell{border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center;font-size:12.5px;font-weight:700;cursor:pointer;background:var(--ok-soft);color:#0c5a37;transition:transform .07s,filter .1s;user-select:none}
+.cell .ct{font-variant-numeric:tabular-nums}
+.cell .cs{display:block;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:2px;opacity:.8}
+.cell:hover{filter:brightness(1.04)}
+.cell:active{transform:translateY(1px)}
+.cell.busy{background:var(--err-soft);color:#8d211d;border-color:#eccac8;cursor:not-allowed}
+.cell.busy .cs{opacity:.9}
+.cell.sel{outline:3px solid var(--accent);outline-offset:1px}
+.cell.past{background:#f1f3f6;color:#aab2bd;border-color:var(--line2);cursor:not-allowed}
+.gridlegend{display:flex;gap:16px;margin:2px 0 12px;font-size:12px;color:var(--muted)}
+.gridlegend i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:middle;margin-right:6px}
 </style>
 </head>
 <body>
@@ -168,8 +182,8 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
 
       <div class="fcard">
         <h2 id="availTitle">Availability</h2>
-        <div id="availList"><div class="muted">Choose a room and date.</div></div>
-        <p class="muted" style="font-size:12.5px;margin-top:12px">Taken times are greyed out in the dropdowns; the system rejects any clash at the moment of booking.</p>
+        <div class="gridlegend"><span><i style="background:var(--ok-soft);border:1px solid #bfe2cd"></i>Free</span><span><i style="background:var(--err-soft);border:1px solid #eccac8"></i>Booked</span><span class="muted">Tap a free slot to set the start time</span></div>
+        <div id="dayGrid" class="daygrid"><div class="muted">Choose a room and date.</div></div>
       </div>
     </div>
   </div>
@@ -263,10 +277,32 @@ async function loadBooked(){
 function refreshStart(){const prev=bStart.value;bStart.innerHTML=slots(false).map(t=>{const d=sBlocked(t);return `<option value="${t}"${d?" disabled":""}>${t}${d?" — booked":""}</option>`;}).join("");if(prev&&!sBlocked(prev))bStart.value=prev;else{const f=slots(false).find(t=>!sBlocked(t));if(f)bStart.value=f;}refreshEnd();}
 function refreshEnd(){const s=bStart.value,prev=bEnd.value;bEnd.innerHTML=slots(true).filter(t=>t>s).map(t=>{const d=overlaps(s,t);return `<option value="${t}"${d?" disabled":""}>${t}${d?" — overlaps":""}</option>`;}).join("");if(prev&&prev>s&&!overlaps(s,prev))bEnd.value=prev;else{const o=[...bEnd.options].find(o=>!o.disabled);if(o)bEnd.value=o.value;}}
 function renderAvail(){
-  $("availTitle").textContent=`Booked · ${roomById(bRoom.value).name} · ${new Date($("bDate").value+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}`;
-  const box=$("availList");
-  if(!booked.length){box.innerHTML='<div class="muted">No bookings yet — all slots open.</div>';return;}
-  box.innerHTML=booked.slice().sort((a,b)=>a.start.localeCompare(b.start)).map(b=>`<div class="slot"><div><span class="s-time">${b.start} – ${b.end}</span><span class="pillsm">Booked</span></div><div class="s-by">${esc(b.name)}</div></div>`).join("");
+  $("availTitle").textContent=`${roomById(bRoom.value).name} · ${new Date($("bDate").value+"T00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"short"})}`;
+  const box=$("dayGrid");
+  const date=$("bDate").value;
+  const nowMin=(date===iso(NOW))?(NOW.getHours()*60+NOW.getMinutes()):-1;
+  let cells="";
+  for(let mn=OPEN*60; mn<CLOSE*60; mn+=30){
+    const t=pad(Math.floor(mn/60))+":"+pad(mn%60);
+    const busy=booked.some(b=>t>=b.start && t<b.end);
+    const past=nowMin>=0 && mn<nowMin;
+    const who=busy?(booked.find(b=>t>=b.start && t<b.end)||{}).name:"";
+    let cls="cell"; if(busy)cls+=" busy"; else if(past)cls+=" past";
+    cells+=`<div class="${cls}" data-t="${t}" title="${busy?('Booked — '+esc(who)) : (past?'Past':'Free — tap to select')}">`
+      +`<span class="ct">${t}</span><span class="cs">${busy?'Booked':(past?'—':'Free')}</span></div>`;
+  }
+  box.innerHTML=cells;
+  // tapping a free slot sets the Start dropdown
+  box.querySelectorAll(".cell").forEach(el=>{
+    if(el.classList.contains("busy")||el.classList.contains("past"))return;
+    el.onclick=()=>{
+      const t=el.dataset.t;
+      if(sBlocked(t))return;
+      bStart.value=t; refreshEnd();
+      box.querySelectorAll(".cell").forEach(c=>c.classList.remove("sel"));
+      el.classList.add("sel");
+    };
+  });
 }
 async function bookRefresh(){await loadBooked();refreshStart();renderAvail();}
 bRoom.onchange=bookRefresh;$("bDate").onchange=bookRefresh;bStart.onchange=refreshEnd;
