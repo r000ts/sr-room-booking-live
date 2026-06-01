@@ -55,6 +55,38 @@ function ksaParts(ts) {
 }
 const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// Build an ICS calendar file (UTC times) so any mail client offers "add to calendar".
+function buildICS(b, ref, roomName) {
+  const toUTC = (date, hm) => {
+    // date=YYYY-MM-DD, hm=HH:MM, in KSA (+03:00) -> UTC basic format YYYYMMDDTHHMMSSZ
+    const d = new Date(`${date}T${hm}:00${TZ}`);
+    return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  };
+  const dtStart = toUTC(b.date, b.start);
+  const dtEnd = toUTC(b.date, b.end);
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const fold = (s) => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//SystemRapid//Room Booking//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${ref}@systemrapid.com`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${fold(roomName + " — " + (b.purpose && b.purpose !== "—" ? b.purpose : "Meeting"))}`,
+    `LOCATION:${fold(roomName)}`,
+    `DESCRIPTION:${fold("Booking reference " + ref + ". Booked by " + b.name + ".")}`,
+    "STATUS:CONFIRMED",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.join("\r\n");
+}
+
 async function sendEmail(b, ref, token) {
   if (!RESEND_API_KEY) return;
   const pretty = new Date(`${b.date}T00:00:00${TZ}`).toLocaleDateString("en-GB",
@@ -74,8 +106,11 @@ async function sendEmail(b, ref, token) {
       </table>
       <div style="margin-top:16px"><a href="${SITE_URL}/?manage=${encodeURIComponent(ref)}&token=${encodeURIComponent(token||"")}"
         style="display:inline-block;background:#0b478d;color:#fff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:8px;font-size:14px">Change or cancel this booking</a></div>
-      <p style="color:#5a6675;font-size:12px;margin-top:12px">If you didn't make this booking, you can ignore this email.</p>
+      <p style="color:#5a6675;font-size:12px;margin-top:12px">A calendar file is attached — open it to add this meeting to Outlook, Google or Apple Calendar.</p>
+      <p style="color:#5a6675;font-size:12px;margin-top:6px">If you didn't make this booking, you can ignore this email.</p>
       </div></div>`;
+  const ics = buildICS(b, ref, roomName);
+  const icsB64 = Buffer.from(ics, "utf8").toString("base64");
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -86,6 +121,9 @@ async function sendEmail(b, ref, token) {
         cc: ADMIN_EMAIL ? [ADMIN_EMAIL] : undefined,
         subject: `Room booking confirmed — ${roomName} — ${b.start}–${b.end}`,
         html,
+        attachments: [
+          { filename: `booking-${ref}.ics`, content: icsB64, content_type: "text/calendar; method=PUBLISH" },
+        ],
       }),
     });
   } catch (e) { console.error("email failed (booking still valid):", e.message); }
