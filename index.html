@@ -148,6 +148,13 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
     
   </div>
 
+  <div class="bookwrap" id="manageView" style="display:none">
+    <div class="fcard">
+      <h2>Manage your booking</h2>
+      <div id="manageBody"><div class="muted">Loading…</div></div>
+    </div>
+  </div>
+
   <div class="tabs" id="tabs">
     <button data-tab="book" class="on">Book a room</button>
     <button data-tab="dash">Dashboard <span class="lock">🔒</span></button>
@@ -450,6 +457,56 @@ $("todayBtn").onclick=()=>{weekOffset=0;renderAll();};
 $("roomSel").onchange=e=>{roomFilter=e.target.value;renderAll();};
 $("search").oninput=e=>{search=e.target.value;renderAll();};
 function renderAll(){if(!dashUnlocked)return;renderKPIs();renderCal();renderTable();}
+
+/* ============ SELF-SERVICE MANAGE (from email link) ============ */
+(function(){
+  const params=new URLSearchParams(location.search);
+  const ref=params.get("manage"), token=params.get("token");
+  if(!ref||!token) return;
+  // hide normal UI, show manage view
+  document.getElementById("tabs").style.display="none";
+  document.getElementById("tab-book").classList.remove("on");
+  document.getElementById("tab-dash").classList.remove("on");
+  const mv=document.getElementById("manageView"); mv.style.display="block";
+  const body=document.getElementById("manageBody");
+
+  async function load(){
+    try{
+      const r=await fetch(`${API}?manage=${encodeURIComponent(ref)}&token=${encodeURIComponent(token)}`,{cache:"no-store"});
+      if(r.status===404){body.innerHTML='<div class="muted">We couldn\'t find this booking. The link may be invalid or the booking was already removed.</div>';return;}
+      if(!r.ok) throw 0;
+      const d=await r.json(); const b=d.booking;
+      const dt=new Date(b.date+"T00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+      const cancelled=b.status==="cancelled";
+      body.innerHTML=`
+        <div class="summary">
+          <div><span>Reference</span><span class="ref">${esc(b.ref)}</span></div>
+          <div><span>Room</span><span>${esc(roomById(b.room)?roomById(b.room).name:b.room)}</span></div>
+          <div><span>Date</span><span>${dt}</span></div>
+          <div><span>Time</span><span>${esc(b.start)} – ${esc(b.end)}</span></div>
+          <div><span>Booked by</span><span>${esc(b.name)}</span></div>
+          <div><span>Status</span><span>${cancelled?'<span style="color:#a3231f;font-weight:700">Cancelled</span>':'<span style="color:#157a4b;font-weight:700">Confirmed</span>'}</span></div>
+        </div>
+        ${cancelled
+          ? '<p class="muted">This booking is cancelled. To book again, open the booking page.</p>'
+          : `<div class="msg warn" id="mMsg" style="display:none"></div>
+             <button class="btn" id="mCancelBtn" style="background:linear-gradient(150deg,#a3231f,#7d1a17)">Cancel this booking</button>
+             <p class="muted" style="font-size:12.5px;margin-top:12px">To change the time, cancel here then make a new booking.</p>`}
+        <div style="margin-top:14px;text-align:center"><a href="${location.pathname}" style="color:var(--accent-deep);font-weight:700;text-decoration:underline">Go to booking page</a></div>`;
+      const cb=document.getElementById("mCancelBtn");
+      if(cb) cb.onclick=async ()=>{
+        if(!confirm("Cancel this booking? This frees the slot for others.")) return;
+        cb.disabled=true; cb.textContent="Cancelling…";
+        try{
+          const rr=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"selfcancel",ref,token})});
+          if(!rr.ok) throw 0;
+          load();
+        }catch(e){ cb.disabled=false; cb.textContent="Cancel this booking"; const m=document.getElementById("mMsg"); if(m){m.style.display="block";m.textContent="Couldn't cancel — please try again.";} }
+      };
+    }catch(e){ body.innerHTML='<div class="muted">Something went wrong loading this booking. Please try the link again.</div>'; }
+  }
+  load();
+})();
 </script>
 </body>
 </html>
