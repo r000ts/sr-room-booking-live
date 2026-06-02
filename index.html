@@ -174,6 +174,18 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
           <div><label>End <span class="req">*</span></label><select id="bEnd"></select><div class="fielderr" id="eEnd">End must be after start and not overlap.</div></div>
           <div class="full"><label>Number of attendees</label><input id="bAtt" type="number" min="1" max="200" placeholder="e.g. 8"></div>
           <div class="full"><label>Purpose / notes</label><textarea id="bPurpose" placeholder="Meeting subject, host, requirements…"></textarea></div>
+          <div><label>Repeat</label>
+            <select id="bRepeat">
+              <option value="none">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 weeks</option>
+              <option value="monthly">Monthly (same weekday)</option>
+            </select>
+          </div>
+          <div id="countWrap" style="display:none"><label>Number of occurrences</label>
+            <input id="bCount" type="number" min="2" max="26" value="4" placeholder="up to 26">
+          </div>
           <div class="full msg warn" id="bMsg"></div>
           <div class="full"><button class="btn" id="bSubmit">Confirm booking</button></div>
         </div>
@@ -334,24 +346,39 @@ $("bSubmit").onclick=async ()=>{
   const btn=$("bSubmit");btn.disabled=true;btn.textContent="Booking…";
   try{
     const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},
-      body:JSON.stringify({room:bRoom.value,name,email,date,start:s,end:e,attendees:$("bAtt").value.trim()||"",purpose:$("bPurpose").value.trim()||""})});
+      body:JSON.stringify({room:bRoom.value,name,email,date,start:s,end:e,attendees:$("bAtt").value.trim()||"",purpose:$("bPurpose").value.trim()||"",repeat:$("bRepeat").value,count:$("bCount").value})});
     if(r.status===409){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Sorry — that slot was just taken. Availability refreshed; pick another time.");await bookRefresh();return;}
     if(!r.ok) throw 0;
     const d=await r.json();
     btn.disabled=false;btn.textContent="Confirm booking";
     $("formCard").style.display="none";$("doneCard").style.display="block";
-    $("doneMsg").textContent=`A confirmation has been emailed to ${email}.`;
-    $("doneSummary").innerHTML=`
-      <div><span>Reference</span><span class="ref">${d.ref}</span></div>
-      <div><span>Room</span><span>${esc(roomById(bRoom.value).name)}</span></div>
-      <div><span>Date</span><span>${new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}</span></div>
-      <div><span>Time</span><span>${s} – ${e}</span></div>
-      <div><span>Booked by</span><span>${esc(name)}</span></div>`;
+    const isSeries = d.booked && d.booked.length;
+    if(isSeries){
+      $("doneMsg").textContent=`Recurring booking confirmed — ${d.booked.length} date${d.booked.length>1?"s":""} booked. A summary has been emailed to ${email}.`;
+      const fmt=iso=>new Date(iso+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
+      const skippedLine = (d.skipped&&d.skipped.length)
+        ? `<div><span>Skipped (already booked)</span><span>${d.skipped.map(fmt).join(", ")}</span></div>` : "";
+      $("doneSummary").innerHTML=`
+        <div><span>Room</span><span>${esc(roomById(bRoom.value).name)}</span></div>
+        <div><span>Time</span><span>${s} – ${e}</span></div>
+        <div><span>Dates booked</span><span>${d.booked.map(fmt).join(", ")}</span></div>
+        ${skippedLine}
+        <div><span>Booked by</span><span>${esc(name)}</span></div>`;
+    } else {
+      $("doneMsg").textContent=`A confirmation has been emailed to ${email}.`;
+      $("doneSummary").innerHTML=`
+        <div><span>Reference</span><span class="ref">${d.ref}</span></div>
+        <div><span>Room</span><span>${esc(roomById(bRoom.value).name)}</span></div>
+        <div><span>Date</span><span>${new Date(date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}</span></div>
+        <div><span>Time</span><span>${s} – ${e}</span></div>
+        <div><span>Booked by</span><span>${esc(name)}</span></div>`;
+    }
     if(dashUnlocked) await loadDashData();
     await bookRefresh();
   }catch(e){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Couldn't reach the booking service. Please try again.");}
 };
-$("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bAtt").value="";$("bPurpose").value="";bookRefresh();};
+$("bRepeat").onchange=()=>{$("countWrap").style.display=$("bRepeat").value==="none"?"none":"block";};
+$("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bAtt").value="";$("bPurpose").value="";$("bRepeat").value="none";$("countWrap").style.display="none";bookRefresh();};
 bookRefresh();
 
 /* ============ DASHBOARD ============ */
@@ -451,8 +478,17 @@ function openDrawer(ref){const b=BOOKINGS.find(x=>x.ref===ref);if(!b)return;cons
 function closeDrawer(){$("drawer").classList.remove("open");$("drawerBg").classList.remove("open");}
 $("drawerClose").onclick=closeDrawer;$("drawerBg").onclick=closeDrawer;
 async function cancelBooking(ref){
+  let scope="single";
+  // the admin list includes series_id; if this ref is in a series, offer the choice
+  const row=BOOKINGS.find(x=>x.ref===ref);
+  if(row && row.series_id){
+    const whole=confirm("This booking is part of a recurring series.\n\nOK = cancel the WHOLE series.\nCancel = cancel just this one date.");
+    scope=whole?"series":"single";
+  } else {
+    if(!confirm("Cancel this booking?")) return;
+  }
   try{
-    const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json","x-dash-pass":DASH_PASS},body:JSON.stringify({action:"cancel",ref})});
+    const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json","x-dash-pass":DASH_PASS},body:JSON.stringify({action:"cancel",ref,scope})});
     if(!r.ok) throw 0;
     await loadDashData(); await bookRefresh();
   }catch(e){ alert("Couldn't cancel — please try again."); }
@@ -502,19 +538,25 @@ function renderAll(){if(!dashUnlocked)return;renderKPIs();renderCal();renderTabl
         ${cancelled
           ? '<p class="muted">This booking is cancelled. To book again, open the booking page.</p>'
           : `<div class="msg warn" id="mMsg" style="display:none"></div>
-             <button class="btn" id="mCancelBtn" style="background:linear-gradient(150deg,#a3231f,#7d1a17)">Cancel this booking</button>
+             ${(b.series_id && b.series_count>1)?`<p class="muted" style="font-size:13px;margin-bottom:8px">This is part of a recurring series of ${b.series_count} bookings.</p>
+             <button class="btn" id="mCancelBtn" style="background:linear-gradient(150deg,#a3231f,#7d1a17);margin-bottom:8px">Cancel just this date</button>
+             <button class="btn" id="mCancelSeriesBtn" style="background:#fff;border:1px solid #a3231f;color:#a3231f">Cancel the whole series (${b.series_count})</button>`
+             :`<button class="btn" id="mCancelBtn" style="background:linear-gradient(150deg,#a3231f,#7d1a17)">Cancel this booking</button>`}
              <p class="muted" style="font-size:12.5px;margin-top:12px">To change the time, cancel here then make a new booking.</p>`}
         <div style="margin-top:14px;text-align:center"><a href="${location.pathname}" style="color:var(--accent-deep);font-weight:700;text-decoration:underline">Go to booking page</a></div>`;
-      const cb=document.getElementById("mCancelBtn");
-      if(cb) cb.onclick=async ()=>{
-        if(!confirm("Cancel this booking? This frees the slot for others.")) return;
-        cb.disabled=true; cb.textContent="Cancelling…";
+      async function doCancel(scope,btnEl,confirmMsg){
+        if(!confirm(confirmMsg)) return;
+        btnEl.disabled=true; btnEl.textContent="Cancelling…";
         try{
-          const rr=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"selfcancel",ref,token})});
+          const rr=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"selfcancel",ref,token,scope})});
           if(!rr.ok) throw 0;
           load();
-        }catch(e){ cb.disabled=false; cb.textContent="Cancel this booking"; const m=document.getElementById("mMsg"); if(m){m.style.display="block";m.textContent="Couldn't cancel — please try again.";} }
-      };
+        }catch(e){ btnEl.disabled=false; const m=document.getElementById("mMsg"); if(m){m.style.display="block";m.textContent="Couldn't cancel — please try again.";} }
+      }
+      const cb=document.getElementById("mCancelBtn");
+      if(cb) cb.onclick=()=>doCancel("single",cb,"Cancel this booking? This frees the slot for others.");
+      const csb=document.getElementById("mCancelSeriesBtn");
+      if(csb) csb.onclick=()=>doCancel("series",csb,"Cancel ALL bookings in this series? This frees every date for others.");
     }catch(e){ body.innerHTML='<div class="muted">Something went wrong loading this booking. Please try the link again.</div>'; }
   }
   load();
