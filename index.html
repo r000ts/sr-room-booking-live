@@ -169,6 +169,13 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
           <div class="full"><label>Room <span class="req">*</span></label><select id="bRoom"></select></div>
           <div><label>Your name <span class="req">*</span></label><input id="bName" type="text"><div class="fielderr" id="eName">Please enter your name.</div></div>
           <div><label>Your email <span class="req">*</span></label><input id="bEmail" type="email" placeholder="name@company.com"><div class="fielderr" id="eEmail">Enter a valid email.</div></div>
+          <div class="full"><label>Mobile number <span class="req">*</span></label>
+            <div style="display:flex;gap:8px">
+              <select id="bDial" style="flex:0 0 142px"></select>
+              <input id="bPhone" type="tel" inputmode="numeric" placeholder="5XXXXXXXX" style="flex:1">
+            </div>
+            <div class="fielderr" id="ePhone">Please enter a valid mobile number.</div>
+          </div>
           <div class="full"><label>Date <span class="req">*</span></label><input id="bDate" type="date"></div>
           <div><label>Start <span class="req">*</span></label><select id="bStart"></select></div>
           <div><label>End <span class="req">*</span></label><select id="bEnd"></select><div class="fielderr" id="eEnd">End must be after start and not overlap.</div></div>
@@ -246,7 +253,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--line2)}tr:hover td{background
       <div class="card">
         <div class="hd"><h2>All bookings</h2><span class="muted" id="tableCount" style="margin-left:auto;font-size:12.5px"></span></div>
         <div class="tablewrap"><table><thead><tr>
-          <th>Ref</th><th>Room</th><th>Date</th><th>Time</th><th>Booked by</th><th>Attendees</th><th>Purpose</th><th>Status</th><th></th>
+          <th>Ref</th><th>Room</th><th>Date</th><th>Time</th><th>Booked by</th><th>Mobile</th><th>Attendees</th><th>Purpose</th><th>Status</th><th></th>
         </tr></thead><tbody id="tbody"></tbody></table></div>
       </div>
     </div>
@@ -264,6 +271,9 @@ const ROOMS=[
   {id:"area3",name:"Area 3 Board Room",hex:"#0b478d"}
 ];
 const API="/.netlify/functions/bookings";
+/* Country dial codes (ISO name, dial). KSA default. */
+const DIALS=[["Saudi Arabia","966"],["United Arab Emirates","971"],["Qatar","974"],["Bahrain","973"],["Kuwait","965"],["Oman","968"],["United Kingdom","44"],["Spain","34"],["India","91"],["Egypt","20"],["United States","1"],["Afghanistan","93"],["Albania","355"],["Algeria","213"],["Argentina","54"],["Armenia","374"],["Australia","61"],["Austria","43"],["Azerbaijan","994"],["Bangladesh","880"],["Belarus","375"],["Belgium","32"],["Brazil","55"],["Bulgaria","359"],["Cambodia","855"],["Cameroon","237"],["Canada","1"],["Chile","56"],["China","86"],["Colombia","57"],["Croatia","385"],["Cyprus","357"],["Czechia","420"],["Denmark","45"],["Ecuador","593"],["Estonia","372"],["Ethiopia","251"],["Finland","358"],["France","33"],["Georgia","995"],["Germany","49"],["Ghana","233"],["Greece","30"],["Hong Kong","852"],["Hungary","36"],["Indonesia","62"],["Iran","98"],["Iraq","964"],["Ireland","353"],["Israel","972"],["Italy","39"],["Japan","81"],["Jordan","962"],["Kazakhstan","7"],["Kenya","254"],["Lebanon","961"],["Libya","218"],["Lithuania","370"],["Luxembourg","352"],["Malaysia","60"],["Maldives","960"],["Malta","356"],["Mexico","52"],["Morocco","212"],["Nepal","977"],["Netherlands","31"],["New Zealand","64"],["Nigeria","234"],["Norway","47"],["Pakistan","92"],["Palestine","970"],["Philippines","63"],["Poland","48"],["Portugal","351"],["Romania","40"],["Russia","7"],["Senegal","221"],["Serbia","381"],["Singapore","65"],["Slovakia","421"],["Slovenia","386"],["South Africa","27"],["South Korea","82"],["Sri Lanka","94"],["Sudan","249"],["Sweden","46"],["Switzerland","41"],["Syria","963"],["Taiwan","886"],["Tanzania","255"],["Thailand","66"],["Tunisia","216"],["Turkey","90"],["Uganda","256"],["Ukraine","380"],["Uruguay","598"],["Uzbekistan","998"],["Venezuela","58"],["Vietnam","84"],["Yemen","967"],["Zambia","260"],["Zimbabwe","263"]];
+(function(){var sel=document.getElementById("bDial");if(!sel)return;DIALS.forEach((c,i)=>{var o=document.createElement("option");o.value=c[1];o.textContent=c[0]+" (+"+c[1]+")";if(c[0]==="Saudi Arabia")o.selected=true;sel.appendChild(o);});})();
 const roomById=id=>ROOMS.find(r=>r.id===id);
 const $=id=>document.getElementById(id);
 const pad=n=>String(n).padStart(2,"0");
@@ -338,15 +348,21 @@ function bMsg(t){const m=$("bMsg");m.textContent=t;m.classList.add("show");}
 $("bSubmit").onclick=async ()=>{
   $("bMsg").classList.remove("show");
   const name=$("bName").value.trim(),email=$("bEmail").value.trim(),date=$("bDate").value,s=bStart.value,e=bEnd.value;
+  const dial=$("bDial").value, rawPhone=$("bPhone").value.replace(/[^\d]/g,"");
   let ok=true;
   setErr("eName",!name);if(!name)ok=false;
   setErr("eEmail",!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))ok=false;
+  // mobile: required; KSA tighter (9 digits, starts 5); others 6–15 digits
+  let phoneBad = !rawPhone || rawPhone.length<6 || rawPhone.length>15;
+  if(dial==="966") phoneBad = !/^5\d{8}$/.test(rawPhone);  // Saudi mobiles: 9 digits starting 5
+  setErr("ePhone",phoneBad);if(phoneBad)ok=false;
   setErr("eEnd",!(s<e)||overlaps(s,e));if(!(s<e)||overlaps(s,e))ok=false;
   if(!ok)return;
+  const phone="+"+dial+" "+rawPhone;
   const btn=$("bSubmit");btn.disabled=true;btn.textContent="Booking…";
   try{
     const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json"},
-      body:JSON.stringify({room:bRoom.value,name,email,date,start:s,end:e,attendees:$("bAtt").value.trim()||"",purpose:$("bPurpose").value.trim()||"",repeat:$("bRepeat").value,count:$("bCount").value})});
+      body:JSON.stringify({room:bRoom.value,name,email,phone,date,start:s,end:e,attendees:$("bAtt").value.trim()||"",purpose:$("bPurpose").value.trim()||"",repeat:$("bRepeat").value,count:$("bCount").value})});
     if(r.status===409){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Sorry — that slot was just taken. Availability refreshed; pick another time.");await bookRefresh();return;}
     if(!r.ok) throw 0;
     const d=await r.json();
@@ -378,7 +394,7 @@ $("bSubmit").onclick=async ()=>{
   }catch(e){btn.disabled=false;btn.textContent="Confirm booking";bMsg("Couldn't reach the booking service. Please try again.");}
 };
 $("bRepeat").onchange=()=>{$("countWrap").style.display=$("bRepeat").value==="none"?"none":"block";};
-$("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bAtt").value="";$("bPurpose").value="";$("bRepeat").value="none";$("countWrap").style.display="none";bookRefresh();};
+$("againBtn").onclick=()=>{$("doneCard").style.display="none";$("formCard").style.display="block";$("bName").value="";$("bEmail").value="";$("bPhone").value="";$("bAtt").value="";$("bPurpose").value="";$("bRepeat").value="none";$("countWrap").style.display="none";bookRefresh();};
 bookRefresh();
 
 /* ============ DASHBOARD ============ */
@@ -456,13 +472,13 @@ function renderTable(){
   let rows=vis().slice();
   try{ rows.sort((a,b)=>String(b.date+"T"+b.start).localeCompare(String(a.date+"T"+a.start))); }catch(e){ console.error("sort failed",e); }
   $("tableCount").textContent=`${rows.filter(r=>r.status==="confirmed").length} confirmed · ${rows.length} total`;
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="9" class="empty">No bookings match.</td></tr>`;return;}
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="10" class="empty">No bookings match.</td></tr>`;return;}
   const html=rows.map(b=>{
     try{
       const r=roomById(b.room)||{hex:"#0b478d",name:b.room||"—"};
       const dd=new Date(b.date+"T00:00");
       const dt=isNaN(dd)?(b.date||"—"):dd.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"});
-      return `<tr><td><span class="ref">${esc(b.ref)}</span></td><td><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</td><td>${dt}</td><td>${esc(b.start)}–${esc(b.end)}</td><td>${esc(b.name)}</td><td class="muted">${esc(b.attendees)}</td><td class="muted">${esc(b.purpose)}</td><td><span class="pill ${esc(b.status)}">${esc(b.status)}</span></td><td style="white-space:nowrap"><button class="act" data-open="${esc(b.ref)}">View</button> ${b.status==="confirmed"?`<button class="act danger" data-cancel="${esc(b.ref)}">Cancel</button>`:""}</td></tr>`;
+      return `<tr><td><span class="ref">${esc(b.ref)}</span></td><td><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</td><td>${dt}</td><td>${esc(b.start)}–${esc(b.end)}</td><td>${esc(b.name)}</td><td class="muted">${esc(b.phone||"—")}</td><td class="muted">${esc(b.attendees)}</td><td class="muted">${esc(b.purpose)}</td><td><span class="pill ${esc(b.status)}">${esc(b.status)}</span></td><td style="white-space:nowrap"><button class="act" data-open="${esc(b.ref)}">View</button> ${b.status==="confirmed"?`<button class="act danger" data-cancel="${esc(b.ref)}">Cancel</button>`:""}</td></tr>`;
     }catch(e){ console.error("row build failed for",b,e); return ""; }
   }).join("");
   tb.innerHTML=html;
@@ -471,7 +487,7 @@ function renderTable(){
 }
 function openDrawer(ref){const b=BOOKINGS.find(x=>x.ref===ref);if(!b)return;const r=roomById(b.room);const dt=new Date(b.date+"T00:00").toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   $("drawerBody").innerHTML=`<h3>${esc(b.name)}</h3><div class="muted" style="margin-bottom:14px"><span class="dot" style="background:${r.hex}"></span>${esc(r.name)}</div>
-    <div class="drow"><span>Reference</span><span class="ref">${b.ref}</span></div><div class="drow"><span>Date</span><span>${dt}</span></div><div class="drow"><span>Time</span><span>${b.start} – ${b.end}</span></div><div class="drow"><span>Attendees</span><span>${esc(b.attendees)}</span></div><div class="drow"><span>Purpose</span><span>${esc(b.purpose)}</span></div><div class="drow"><span>Status</span><span><span class="pill ${b.status}">${b.status}</span></span></div>
+    <div class="drow"><span>Reference</span><span class="ref">${b.ref}</span></div><div class="drow"><span>Date</span><span>${dt}</span></div><div class="drow"><span>Time</span><span>${b.start} – ${b.end}</span></div><div class="drow"><span>Email</span><span>${esc(b.email||"—")}</span></div><div class="drow"><span>Mobile</span><span>${esc(b.phone||"—")}</span></div><div class="drow"><span>Attendees</span><span>${esc(b.attendees)}</span></div><div class="drow"><span>Purpose</span><span>${esc(b.purpose)}</span></div><div class="drow"><span>Status</span><span><span class="pill ${b.status}">${b.status}</span></span></div>
     <div class="dactions">${b.status==="confirmed"?`<button class="btn2 primary" disabled>Edit</button><button class="btn2 ghost" id="dCancel">Cancel booking</button>`:`<button class="btn2 primary" disabled>Cancelled</button>`}</div>`;
   const dc=$("dCancel");if(dc)dc.onclick=()=>{cancelBooking(ref);closeDrawer();};
   $("drawer").classList.add("open");$("drawerBg").classList.add("open");}
