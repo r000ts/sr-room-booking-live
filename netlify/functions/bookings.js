@@ -168,6 +168,7 @@ async function sendEmail(b, ref, token) {
         <tr><td style="color:#5a6675;padding:6px 0">Room</td><td style="text-align:right;font-weight:700">${esc(roomName)}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Date</td><td style="text-align:right;font-weight:700">${pretty}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Time</td><td style="text-align:right;font-weight:700">${b.start} – ${b.end} (KSA)</td></tr>
+        ${b.phone?`<tr><td style="color:#5a6675;padding:6px 0">Mobile</td><td style="text-align:right;font-weight:700">${esc(b.phone)}</td></tr>`:""}
       </table>
       <div style="margin-top:16px"><a href="${SITE_URL}/?manage=${encodeURIComponent(ref)}&token=${encodeURIComponent(token||"")}"
         style="display:inline-block;background:#0b478d;color:#fff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:8px;font-size:14px">Change or cancel this booking</a></div>
@@ -234,12 +235,12 @@ exports.handler = async (event) => {
       if (from) { params.push(`${from}T00:00:00${TZ}`); where += ` and starts_at >= $${params.length}`; }
       if (to)   { params.push(`${to}T23:59:59${TZ}`);   where += ` and starts_at <= $${params.length}`; }
       const { rows } = await pool.query(
-        `select ref, room, series_id, booker_name, booker_email, attendees, purpose, starts_at, ends_at, status
+        `select ref, room, series_id, booker_name, booker_email, phone, attendees, purpose, starts_at, ends_at, status
            from bookings where ${where} order by starts_at`, params);
       const bookings = rows.map(r => {
         const s = ksaParts(r.starts_at), e = ksaParts(r.ends_at);
         return { ref: r.ref, room: r.room, series_id: r.series_id || null, name: r.booker_name, email: r.booker_email,
-          attendees: r.attendees || "—", purpose: r.purpose || "—",
+          phone: r.phone || "—", attendees: r.attendees || "—", purpose: r.purpose || "—",
           date: s.date, start: s.hm, end: e.hm, status: r.status };
       });
       return json(200, { bookings });
@@ -308,9 +309,9 @@ exports.handler = async (event) => {
           const token = crypto.randomBytes(18).toString("hex");
           try {
             await pool.query(
-              `insert into bookings (ref, manage_token, room, booker_name, booker_email, attendees, purpose, starts_at, ends_at)
-               values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-              [ref, token, b.room, b.name, b.email, b.attendees || null, b.purpose || null, startsAt, endsAt]);
+              `insert into bookings (ref, manage_token, room, booker_name, booker_email, phone, attendees, purpose, starts_at, ends_at)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              [ref, token, b.room, b.name, b.email, b.phone || null, b.attendees || null, b.purpose || null, startsAt, endsAt]);
             await sendEmail(b, ref, token);
             return json(200, { ok: true, ref });
           } catch (e) {
@@ -335,9 +336,9 @@ exports.handler = async (event) => {
           const token = crypto.randomBytes(18).toString("hex");
           try {
             await pool.query(
-              `insert into bookings (ref, manage_token, series_id, room, booker_name, booker_email, attendees, purpose, starts_at, ends_at)
-               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-              [ref, token, seriesId, b.room, b.name, b.email, b.attendees || null, b.purpose || null, sAt, eAt]);
+              `insert into bookings (ref, manage_token, series_id, room, booker_name, booker_email, phone, attendees, purpose, starts_at, ends_at)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+              [ref, token, seriesId, b.room, b.name, b.email, b.phone || null, b.attendees || null, b.purpose || null, sAt, eAt]);
             booked.push({ ref, date: d });
             if (!firstRef) { firstRef = ref; firstToken = token; }
             placed = true;
