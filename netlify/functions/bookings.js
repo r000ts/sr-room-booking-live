@@ -2,17 +2,31 @@
 //  Netlify Function: /.netlify/functions/bookings
 //
 //  PUBLIC (booking form):
+//    GET  ?rooms=1                          -> { rooms:[ active rooms ] }
 //    GET  ?room=<id>&date=YYYY-MM-DD        -> { bookings:[{start,end,name}] }   (confirmed only)
-//    POST { room,name,email,date,start,end,attendees,purpose }
+//    POST { room,name,email,date,start,end,attendees,purpose,repeat,count }
 //          -> 200 { ok, ref } | 409 { error:"conflict" }
+//
+//  SELF-SERVICE:
+//    GET  ?manage=<ref>&token=<token>       -> { booking }
+//    POST { action:"selfcancel", ref, token, scope? }
 //
 //  ADMIN (dashboard) — requires header  x-dash-pass: <DASH_PASSCODE> :
 //    GET  ?admin=1&from=YYYY-MM-DD&to=YYYY-MM-DD -> { bookings:[ full rows ] }
-//    POST { action:"cancel", ref }               -> 200 { ok }
+//    GET  ?admin=1&rooms=1                       -> { rooms:[ ALL rooms, incl. archived ] }
+//    POST { action:"cancel", ref, scope? }        -> 200 { ok }
+//    POST { action:"room_save", room:{...} }      -> 200 { ok, room }
+//    POST { action:"room_archive", id }           -> 200 { ok, future_bookings }
 //
-//  Blocking is enforced by the database exclusion constraint (see schema.sql):
-//  two confirmed bookings cannot overlap the same room. Concurrent requests are
-//  serialised by Postgres, so no double-booking is possible.
+//  PHASE 2 CHANGE:
+//  Rooms now live in the `rooms` table, not in a hardcoded constant.
+//  Room names for emails, the form's room list and the dashboard's room
+//  list are all read from the database. Adding a room is a dashboard
+//  action, not a code change.
+//
+//  Blocking is still enforced by the database exclusion constraint:
+//  two confirmed bookings cannot overlap the same room. Concurrent
+//  requests are serialised by Postgres, so no double-booking is possible.
 // ============================================================
 const { Pool } = require("pg");
 
@@ -27,11 +41,17 @@ const DASH_PASSCODE = process.env.DASH_PASSCODE || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM = process.env.RESEND_FROM || "Area 3 Booking <bookings@systemrapid.com>";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";   // optional CC for confirmations
-const ORG_NAME = process.env.ORG_NAME || "FCC\u2013Almabani Joint Venture";
+const ORG_NAME = process.env.ORG_NAME || "FCC–Almabani Joint Venture";
 const SITE_URL = process.env.SITE_URL || "https://booking.systemrapid.com";
 const crypto = require("crypto");
 
-const ROOM_NAMES = { area3: "Area 3 Board Room" };   // for emails; UI has its own labels
+// Last-resort fallback ONLY: used if the rooms table cannot be read at all
+// (e.g. this function is deployed before the Phase 2 migration is run).
+// Keeps the pilot room bookable rather than failing the whole site.
+const FALLBACK_ROOMS = [
+  { id: "area3", name: "Area 3 HQ – Board meeting room", hex: "#0b478d",
+    capacity: null, floor: null, directions: null, active: true, sort_order: 10 },
+];
 
 function json(code, body) {
   return {
@@ -54,6 +74,46 @@ function ksaParts(ts) {
   return { date, hm };
 }
 const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ------------------------------------------------------------------
+//  ROOMS — database-backed
+// ------------------------------------------------------------------
+const ROOM_COLS = "id, name, hex, capacity, floor, directions, active, sort_order, plan_id, pin_x, pin_y";
+
+async function listRooms(includeArchived) {
+  try {
+    const { rows } = await pool.query(
+      `select ${ROOM_COLS} from rooms
+        ${includeArchived ? "" : "where active = true"}
+        order by sort_order, name`);
+    if (!rows.length && !includeArchived) return FALLBACK_ROOMS;
+    return rows;
+  } catch (e) {
+    console.error("rooms table unreadable, using fallback:", e.message);
+    return FALLBACK_ROOMS;
+  }
+}
+
+// Resolve one room. Returns null if it does not exist.
+async function getRoom(id) {
+  try {
+    const { rows } = await pool.query(`select ${ROOM_COLS} from rooms where id = $1`, [id]);
+    return rows[0] || null;
+  } catch (e) {
+    console.error("getRoom failed, using fallback:", e.message);
+    return FALLBACK_ROOMS.find(r => r.id === id) || null;
+  }
+}
+
+// Display label for emails / ICS. Falls back to the raw id so an email
+// is never blocked by a missing room row.
+async function roomLabel(id) {
+  const r = await getRoom(id);
+  return (r && r.name) || id;
+}
+
+const ROOM_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 // Generate occurrence dates (YYYY-MM-DD) from a start date + repeat rule.
 // monthly = same weekday position (e.g. 2nd Tuesday). Cap handled by caller.
@@ -87,9 +147,8 @@ function occurrenceDates(startDate, repeat, count) {
   return [startDate];
 }
 
-async function sendSeriesEmail(b, booked, skipped, ref, token, seriesId) {
+async function sendSeriesEmail(b, booked, skipped, ref, token, seriesId, roomName) {
   if (!RESEND_API_KEY) return;
-  const roomName = ROOM_NAMES[b.room] || b.room;
   const fmtLong = (iso) => new Date(`${iso}T00:00:00${TZ}`).toLocaleDateString("en-GB",
     { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Riyadh" });
   const list = booked.map(x => `<li style="margin:2px 0">${fmtLong(x.date)} · ${b.start}–${b.end}</li>`).join("");
@@ -121,7 +180,7 @@ async function sendSeriesEmail(b, booked, skipped, ref, token, seriesId) {
 }
 
 // Build an ICS calendar file (UTC times) so any mail client offers "add to calendar".
-function buildICS(b, ref, roomName) {
+function buildICS(b, ref, roomName, roomDirections) {
   const toUTC = (date, hm) => {
     // date=YYYY-MM-DD, hm=HH:MM, in KSA (+03:00) -> UTC basic format YYYYMMDDTHHMMSSZ
     const d = new Date(`${date}T${hm}:00${TZ}`);
@@ -144,7 +203,8 @@ function buildICS(b, ref, roomName) {
     `DTEND:${dtEnd}`,
     `SUMMARY:${fold(roomName + " — " + (b.purpose && b.purpose !== "—" ? b.purpose : "Meeting"))}`,
     `LOCATION:${fold(roomName)}`,
-    `DESCRIPTION:${fold("Booking reference " + ref + ". Booked by " + b.name + ".")}`,
+    `DESCRIPTION:${fold("Booking reference " + ref + ". Booked by " + b.name + "."
+      + (roomDirections ? " " + roomDirections : ""))}`,
     "STATUS:CONFIRMED",
     "END:VEVENT",
     "END:VCALENDAR",
@@ -152,11 +212,13 @@ function buildICS(b, ref, roomName) {
   return lines.join("\r\n");
 }
 
-async function sendEmail(b, ref, token) {
+async function sendEmail(b, ref, token, room) {
   if (!RESEND_API_KEY) return;
   const pretty = new Date(`${b.date}T00:00:00${TZ}`).toLocaleDateString("en-GB",
     { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Riyadh" });
-  const roomName = ROOM_NAMES[b.room] || b.room;
+  const roomName = (room && room.name) || b.room;
+  const directions = (room && room.directions) || "";
+  const floor = (room && room.floor) || "";
   const html = `
   <div style="font-family:Segoe UI,Arial,sans-serif;color:#152233;max-width:560px">
     <div style="background:#0b478d;color:#fff;padding:16px 20px;border-radius:10px 10px 0 0">
@@ -166,16 +228,18 @@ async function sendEmail(b, ref, token) {
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <tr><td style="color:#5a6675;padding:6px 0">Reference</td><td style="text-align:right;font-weight:700">${ref}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Room</td><td style="text-align:right;font-weight:700">${esc(roomName)}</td></tr>
+        ${floor?`<tr><td style="color:#5a6675;padding:6px 0">Floor</td><td style="text-align:right;font-weight:700">${esc(floor)}</td></tr>`:""}
         <tr><td style="color:#5a6675;padding:6px 0">Date</td><td style="text-align:right;font-weight:700">${pretty}</td></tr>
         <tr><td style="color:#5a6675;padding:6px 0">Time</td><td style="text-align:right;font-weight:700">${b.start} – ${b.end} (KSA)</td></tr>
         ${b.phone?`<tr><td style="color:#5a6675;padding:6px 0">Mobile</td><td style="text-align:right;font-weight:700">${esc(b.phone)}</td></tr>`:""}
       </table>
+      ${directions?`<p style="color:#5a6675;font-size:13px;margin-top:14px"><strong style="color:#152233">Where is it:</strong> ${esc(directions)}</p>`:""}
       <div style="margin-top:16px"><a href="${SITE_URL}/?manage=${encodeURIComponent(ref)}&token=${encodeURIComponent(token||"")}"
         style="display:inline-block;background:#0b478d;color:#fff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:8px;font-size:14px">Change or cancel this booking</a></div>
       <p style="color:#5a6675;font-size:12px;margin-top:12px">A calendar file is attached — open it to add this meeting to Outlook, Google or Apple Calendar.</p>
       <p style="color:#5a6675;font-size:12px;margin-top:6px">If you didn't make this booking, you can ignore this email.</p>
       </div></div>`;
-  const ics = buildICS(b, ref, roomName);
+  const ics = buildICS(b, ref, roomName, directions);
   const icsB64 = Buffer.from(ics, "utf8").toString("base64");
   try {
     await fetch("https://api.resend.com/emails", {
@@ -200,15 +264,30 @@ exports.handler = async (event) => {
 
   const q = event.queryStringParameters || {};
   const pass = event.headers["x-dash-pass"] || event.headers["X-Dash-Pass"];
+  const isAdmin = () => DASH_PASSCODE && pass === DASH_PASSCODE;
 
   try {
+    // ---------------- ROOMS: list ----------------
+    // Public call returns active rooms only. Admin call (?admin=1&rooms=1)
+    // returns archived rooms too, so facilities can un-archive them.
+    if (event.httpMethod === "GET" && q.rooms === "1") {
+      const wantAll = q.admin === "1";
+      if (wantAll && !isAdmin()) return json(401, { error: "unauthorised" });
+      const rooms = await listRooms(wantAll);
+      return json(200, { rooms });
+    }
+
     // ---------------- SELF-SERVICE: look up own booking (ref + token) ----------------
     if (event.httpMethod === "GET" && q.manage) {
       const ref = q.manage, token = q.token || "";
       if (!ref || !token) return json(400, { error: "missing ref or token" });
       const { rows } = await pool.query(
-        `select ref, room, series_id, booker_name, attendees, purpose, starts_at, ends_at, status
-           from bookings where ref=$1 and manage_token=$2`, [ref, token]);
+        `select b.ref, b.room, b.series_id, b.booker_name, b.attendees, b.purpose,
+                b.starts_at, b.ends_at, b.status,
+                r.name as room_name, r.floor as room_floor, r.directions as room_directions
+           from bookings b
+           left join rooms r on r.id = b.room
+          where b.ref=$1 and b.manage_token=$2`, [ref, token]);
       if (!rows.length) return json(404, { error: "not found" });
       const r = rows[0];
       const s = ksaParts(r.starts_at), e = ksaParts(r.ends_at);
@@ -219,37 +298,99 @@ exports.handler = async (event) => {
         seriesCount = c.rows[0].n;
       }
       return json(200, { booking: {
-        ref: r.ref, room: r.room, name: r.booker_name,
+        ref: r.ref, room: r.room, room_name: r.room_name || r.room,
+        room_floor: r.room_floor || null, room_directions: r.room_directions || null,
+        name: r.booker_name,
         attendees: r.attendees || "—", purpose: r.purpose || "—",
         date: s.date, start: s.hm, end: e.hm, status: r.status,
         series_id: r.series_id || null, series_count: seriesCount } });
     }
 
-    // ---------------- ADMIN: list all ----------------
+    // ---------------- ADMIN: list all bookings ----------------
     if (event.httpMethod === "GET" && q.admin === "1") {
-      if (!DASH_PASSCODE || pass !== DASH_PASSCODE) return json(401, { error: "unauthorised" });
+      if (!isAdmin()) return json(401, { error: "unauthorised" });
       const from = /^\d{4}-\d{2}-\d{2}$/.test(q.from || "") ? q.from : null;
       const to   = /^\d{4}-\d{2}-\d{2}$/.test(q.to || "") ? q.to : null;
       const params = [];
       let where = "true";
-      if (from) { params.push(`${from}T00:00:00${TZ}`); where += ` and starts_at >= $${params.length}`; }
-      if (to)   { params.push(`${to}T23:59:59${TZ}`);   where += ` and starts_at <= $${params.length}`; }
+      if (from) { params.push(`${from}T00:00:00${TZ}`); where += ` and b.starts_at >= $${params.length}`; }
+      if (to)   { params.push(`${to}T23:59:59${TZ}`);   where += ` and b.starts_at <= $${params.length}`; }
       const { rows } = await pool.query(
-        `select ref, room, series_id, booker_name, booker_email, phone, attendees, purpose, starts_at, ends_at, status
-           from bookings where ${where} order by starts_at`, params);
+        `select b.ref, b.room, b.series_id, b.booker_name, b.booker_email, b.phone,
+                b.attendees, b.purpose, b.starts_at, b.ends_at, b.status,
+                r.name as room_name
+           from bookings b
+           left join rooms r on r.id = b.room
+          where ${where} order by b.starts_at`, params);
       const bookings = rows.map(r => {
         const s = ksaParts(r.starts_at), e = ksaParts(r.ends_at);
-        return { ref: r.ref, room: r.room, series_id: r.series_id || null, name: r.booker_name, email: r.booker_email,
+        return { ref: r.ref, room: r.room, room_name: r.room_name || r.room,
+          series_id: r.series_id || null, name: r.booker_name, email: r.booker_email,
           phone: r.phone || "—", attendees: r.attendees || "—", purpose: r.purpose || "—",
           date: s.date, start: s.hm, end: e.hm, status: r.status };
       });
       return json(200, { bookings });
     }
 
-    // ---------------- ADMIN: cancel ----------------
+    // ---------------- POST ----------------
     if (event.httpMethod === "POST") {
       let body;
       try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { error: "invalid JSON" }); }
+
+      // ---------- ADMIN: add / edit a room ----------
+      if (body.action === "room_save") {
+        if (!isAdmin()) return json(401, { error: "unauthorised" });
+        const r = body.room || {};
+        const id = String(r.id || "").trim().toLowerCase();
+        const name = String(r.name || "").trim();
+
+        if (!ROOM_ID_RE.test(id)) {
+          return json(400, { error: "room id must be lowercase letters, numbers and hyphens (max 40 chars)" });
+        }
+        if (!name) return json(400, { error: "room name is required" });
+
+        const hex = HEX_RE.test(r.hex || "") ? r.hex : "#0b478d";
+        let capacity = parseInt(r.capacity, 10);
+        if (!Number.isFinite(capacity) || capacity < 1) capacity = null;
+        let sortOrder = parseInt(r.sort_order, 10);
+        if (!Number.isFinite(sortOrder)) sortOrder = 100;
+        const active = r.active === false ? false : true;
+        const floor = r.floor ? String(r.floor).trim() : null;
+        const directions = r.directions ? String(r.directions).trim() : null;
+
+        // NOTE: upsert is by id. Editing a room's name/capacity/colour is safe.
+        // Sending a NEW id creates a NEW room — it does not rename the old one,
+        // because bookings.room references the id. Renaming is a display change only.
+        const { rows } = await pool.query(
+          `insert into rooms (id, name, hex, capacity, floor, directions, active, sort_order)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)
+           on conflict (id) do update
+             set name=$2, hex=$3, capacity=$4, floor=$5, directions=$6,
+                 active=$7, sort_order=$8, updated_at=now()
+           returning ${ROOM_COLS}`,
+          [id, name, hex, capacity, floor, directions, active, sortOrder]);
+        return json(200, { ok: true, room: rows[0] });
+      }
+
+      // ---------- ADMIN: archive / un-archive a room ----------
+      if (body.action === "room_archive") {
+        if (!isAdmin()) return json(401, { error: "unauthorised" });
+        const id = String(body.id || "").trim().toLowerCase();
+        if (!id) return json(400, { error: "missing id" });
+        const active = body.active === true;   // default: archive
+
+        // Report how many confirmed future bookings this room still has, so the
+        // dashboard can warn rather than silently hide a room people rely on.
+        const fut = await pool.query(
+          `select count(*)::int n from bookings
+            where room=$1 and status='confirmed' and starts_at >= now()`, [id]);
+
+        const { rowCount } = await pool.query(
+          `update rooms set active=$2, updated_at=now() where id=$1`, [id, active]);
+        if (!rowCount) return json(404, { error: "room not found" });
+
+        return json(200, { ok: true, active, future_bookings: fut.rows[0].n });
+      }
 
       if (body.action === "selfcancel") {
         if (!body.ref || !body.token) return json(400, { error: "missing ref or token" });
@@ -269,7 +410,7 @@ exports.handler = async (event) => {
       }
 
       if (body.action === "cancel") {
-        if (!DASH_PASSCODE || pass !== DASH_PASSCODE) return json(401, { error: "unauthorised" });
+        if (!isAdmin()) return json(401, { error: "unauthorised" });
         if (!body.ref) return json(400, { error: "missing ref" });
         if (body.scope === "series") {
           const s = await pool.query(`select series_id from bookings where ref=$1`, [body.ref]);
@@ -293,6 +434,13 @@ exports.handler = async (event) => {
       }
       if (!(b.start < b.end)) return json(400, { error: "end must be after start" });
 
+      // Room must exist and be bookable. Previously any string was accepted,
+      // which would have silently created bookings against a room nobody
+      // could see once the room list came from the database.
+      const room = await getRoom(b.room);
+      if (!room) return json(400, { error: "unknown room" });
+      if (room.active === false) return json(400, { error: "room is not currently bookable" });
+
       // Build the list of dates for this booking (1 = single; >1 = recurring series)
       const repeat = b.repeat || "none";
       let count = parseInt(b.count, 10);
@@ -312,7 +460,7 @@ exports.handler = async (event) => {
               `insert into bookings (ref, manage_token, room, booker_name, booker_email, phone, attendees, purpose, starts_at, ends_at)
                values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
               [ref, token, b.room, b.name, b.email, b.phone || null, b.attendees || null, b.purpose || null, startsAt, endsAt]);
-            await sendEmail(b, ref, token);
+            await sendEmail(b, ref, token, room);
             return json(200, { ok: true, ref });
           } catch (e) {
             if (e.code === "23P01") return json(409, { error: "conflict" });
@@ -352,7 +500,7 @@ exports.handler = async (event) => {
 
       if (booked.length === 0) return json(409, { error: "conflict", skipped });
       // one confirmation email summarising the series
-      await sendSeriesEmail(b, booked, skipped, firstRef, firstToken, seriesId);
+      await sendSeriesEmail(b, booked, skipped, firstRef, firstToken, seriesId, room.name);
       return json(200, { ok: true, ref: firstRef, series_id: seriesId,
         booked: booked.map(x => x.date), skipped });
     }
